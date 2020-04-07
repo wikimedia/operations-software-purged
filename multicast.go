@@ -4,35 +4,38 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"strings"
 )
 
 type PurgeReader interface {
-	Read(c chan string) error
+	Read(c chan string)
 }
 
 type MultiCastReader struct {
 	maxDatagramSize int
 	bytesRead       int
 	badPackets      int
-	mcastAddr       string
+	mcastAddrs      string
 }
 
-// Continuously read from the given multicast address, convert bytes to string
-// and quickly offload the data to a buffered channel. URLs to be purged are
-// made available in the provided channel "churls".
-func (pr MultiCastReader) Read(churls chan string) error {
-	addr, err := net.ResolveUDPAddr("udp4", pr.mcastAddr)
+// Continuously read from the given multicast address, extract URLs to be
+// purged and quickly offload the data to the provided buffered channel
+// "churls".
+func (pr MultiCastReader) readFromAddr(churls chan string, mcastAddr string) {
+	addr, err := net.ResolveUDPAddr("udp4", mcastAddr)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 
 	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
 
 	conn.SetReadBuffer(pr.maxDatagramSize)
 	buffer := make([]byte, pr.maxDatagramSize)
+
+	log.Printf("Reading from %s with maximum datagram size %d", mcastAddr, pr.maxDatagramSize)
 
 	for {
 		readBytes, src, err := conn.ReadFromUDP(buffer)
@@ -71,5 +74,11 @@ func (pr MultiCastReader) Read(churls chan string) error {
 		}
 
 		churls <- string(buffer[offset : offset+url_len])
+	}
+}
+
+func (pr MultiCastReader) Read(churls chan string) {
+	for _, addr := range strings.Split(pr.mcastAddrs, ",") {
+		go pr.readFromAddr(churls, addr)
 	}
 }
