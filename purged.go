@@ -8,20 +8,36 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strconv"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-	frontendURL = flag.String("frontend_url", "http://127.0.0.1:80", "Cache frontend URL")
-	backendURL  = flag.String("backend_url", "http://127.0.0.1:3128", "Cache backend URL")
-	purgeErrors = 0
+	frontendURL   = flag.String("frontend_url", "http://127.0.0.1:80", "Cache frontend URL")
+	backendURL    = flag.String("backend_url", "http://127.0.0.1:3128", "Cache backend URL")
+	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
+	purgeRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "purged_http_requests_total",
+		Help: "Total number of HTTP PURGE sent by status code",
+	}, []string{
+		"status",
+		"url",
+	})
+	backlog = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "purged_backlog",
+		Help: "Number of messages still to process",
+	})
 )
 
 func sendPurge(client *http.Client, baseUrl, path, host string) error {
 	rawurl := baseUrl + path
 	req, err := http.NewRequest("PURGE", rawurl, nil)
 	if err != nil {
-		log.Printf("Failed creating request for url %s\n", rawurl)
+		log.Printf("Failed creating request for Host: %s URL=%s\n", host, rawurl)
 		return err
 	}
 
@@ -37,12 +53,10 @@ func sendPurge(client *http.Client, baseUrl, path, host string) error {
 	_, err = io.Copy(ioutil.Discard, resp.Body)
 	if err != nil {
 		log.Println(err)
-		purgeErrors++
+		return err
 	}
 
-	if resp.StatusCode != 204 && resp.StatusCode != 404 {
-		purgeErrors++
-	}
+	purgeRequests.With(prometheus.Labels{"status": strconv.Itoa(resp.StatusCode), "url": baseUrl}).Inc()
 	return err
 }
 
@@ -67,6 +81,11 @@ func worker(ch chan string) {
 func main() {
 	flag.Parse()
 
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(*metricsAddr, nil)
+	}()
+
 	// Setup reader
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddr: "239.128.0.112:4827"}
 	ch := make(chan string, 1000000)
@@ -78,7 +97,8 @@ func main() {
 	}
 
 	for {
+		// Update purged_backlog metric
 		time.Sleep(1000 * time.Millisecond)
-		log.Println("backlog", len(ch), "errors", purgeErrors)
+		backlog.Set(float64(len(ch)))
 	}
 }
