@@ -1,0 +1,5 @@
+purged (0.1) buster-wikimedia; urgency=medium
+
+  * Initial release (Bug: T249583)
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Tue, 07 Apr 2020 17:12:03 +0200

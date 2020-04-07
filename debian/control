@@ -1,0 +1,14 @@
+Source: purged
+Section: web
+Priority: optional
+Maintainer: Emanuele Rocca <ema@wikimedia.org>
+Uploaders: Valentin Gutierrez <vgutierrez@wikimedia.org>
+Build-Depends: debhelper (>= 10), golang-github-prometheus-client-golang-dev, golang-go
+Standards-Version: 4.2.1
+
+Package: purged
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Purger for Varnish and ATS
+ Listen for purge requests and forward them to ATS and Varnish via the HTTP
+ PURGE method.
