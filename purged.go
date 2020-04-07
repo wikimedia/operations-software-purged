@@ -20,6 +20,7 @@ var (
 	frontendURL   = flag.String("frontend_url", "http://127.0.0.1:80", "Cache frontend URL")
 	backendURL    = flag.String("backend_url", "http://127.0.0.1:3128", "Cache backend URL")
 	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
+	concurrency   = flag.Int("concurrency", runtime.NumCPU(), "Number of purger goroutines")
 	purgeRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
@@ -91,9 +92,11 @@ func main() {
 	// Begin producing URLs to ch
 	go pr.Read(ch)
 
-	for i := 0; i < runtime.NumCPU(); i++ {
+	for i := 0; i < *concurrency; i++ {
 		go worker(ch)
 	}
+
+	log.Printf("purged started with %d workers. Metrics at %s/metrics\n", *concurrency, *metricsAddr)
 
 	for {
 		// Update purged_backlog metric
