@@ -91,7 +91,12 @@ func main() {
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddr: *mcastAddr}
 	ch := make(chan string, 1000000)
 	// Begin producing URLs to ch
-	go pr.Read(ch)
+	go func() {
+		err := pr.Read(ch)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	for i := 0; i < *concurrency; i++ {
 		go worker(ch)
