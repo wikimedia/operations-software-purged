@@ -37,18 +37,17 @@ func sendPurge(client *http.Client, baseUrl, path, host string) error {
 	rawurl := baseUrl + path
 	req, err := http.NewRequest("PURGE", rawurl, nil)
 	if err != nil {
-		log.Printf("Failed creating request for Host: %s URL=%s\n", host, rawurl)
+		log.Printf("Failed creating request for Host: %s URL=%s. %s\n", host, rawurl, err)
 		return err
 	}
 
 	req.Header.Add("Host", host)
 	resp, err := client.Do(req)
-	defer resp.Body.Close()
-
 	if err != nil {
 		log.Printf("Failed sending request to Host: %s -> %s: %s\n", host, rawurl, err)
 		return err
 	}
+	defer resp.Body.Close()
 
 	_, err = io.Copy(ioutil.Discard, resp.Body)
 	if err != nil {
