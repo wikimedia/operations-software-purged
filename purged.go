@@ -19,6 +19,7 @@ import (
 var (
 	frontendURL   = flag.String("frontend_url", "http://127.0.0.1:80", "Cache frontend URL")
 	backendURL    = flag.String("backend_url", "http://127.0.0.1:3128", "Cache backend URL")
+	mcastAddr     = flag.String("mcast_addr", "239.128.0.112:4827", "Multicast address")
 	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
 	concurrency   = flag.Int("concurrency", runtime.NumCPU(), "Number of purger goroutines")
 	purgeRequests = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -87,7 +88,7 @@ func main() {
 	}()
 
 	// Setup reader
-	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddr: "239.128.0.112:4827"}
+	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddr: *mcastAddr}
 	ch := make(chan string, 1000000)
 	// Begin producing URLs to ch
 	go pr.Read(ch)
