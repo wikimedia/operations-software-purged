@@ -43,7 +43,7 @@ func sendPurge(client *http.Client, baseUrl, path, host string) error {
 		return err
 	}
 
-	req.Header.Add("Host", host)
+	req.Host = host
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Failed sending request to Host: %s -> %s: %s\n", host, rawurl, err)
