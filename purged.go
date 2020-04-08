@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -82,6 +83,7 @@ func worker(ch chan string) {
 func main() {
 	flag.Parse()
 
+	// Serve prometheus metrics under /metrics, profiling under /debug/pprof
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		http.ListenAndServe(*metricsAddr, nil)
