@@ -8,7 +8,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
-	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,7 +20,7 @@ var (
 	backendAddr   = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
 	mcastAddrs    = flag.String("mcast_addrs", "239.128.0.112:4827,239.128.0.115:4827", "Comma separated list of multicast addresses")
 	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
-	concurrency   = flag.Int("concurrency", runtime.NumCPU(), "Number of purger goroutines")
+	concurrency   = flag.Int("concurrency", 4, "Number of purger goroutines")
 	purgeRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
@@ -37,7 +36,7 @@ var (
 	bytesRead    = 0 // XXX turn into prometheus metric
 )
 
-const purgeReq = "PURGE %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: purged\r\n\r\n"
+const purgeReq = "PURGE %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: purged\r\n\r\n"
 
 func sendPurge(conn net.Conn, host, uri, layer string) error {
 	nbytes, err := fmt.Fprintf(conn, purgeReq, uri, host)
