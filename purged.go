@@ -32,8 +32,18 @@ var (
 		Name: "purged_backlog",
 		Help: "Number of messages still to process",
 	})
-	bytesWritten = 0 // XXX turn into prometheus metric
-	bytesRead    = 0 // XXX turn into prometheus metric
+	bytesWritten = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "purged_bytes_written_total",
+		Help: "Total number of bytes sent by layer",
+	}, []string{
+		"layer",
+	})
+	bytesRead = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "purged_bytes_read_total",
+		Help: "Total number of bytes received by layer",
+	}, []string{
+		"layer",
+	})
 )
 
 const purgeReq = "PURGE %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: purged\r\n\r\n"
@@ -44,7 +54,8 @@ func sendPurge(conn net.Conn, host, uri, layer string) error {
 		return err
 	}
 
-	bytesWritten += nbytes
+	// Update purged_bytes_written_total
+	bytesWritten.With(prometheus.Labels{"layer": layer}).Add(float64(nbytes))
 
 	buffer := make([]byte, 4096)
 	nbytes, err = conn.Read(buffer)
@@ -52,10 +63,12 @@ func sendPurge(conn net.Conn, host, uri, layer string) error {
 		return err
 	}
 
-	bytesRead += nbytes
+	// Update purged_bytes_read_total
+	bytesRead.With(prometheus.Labels{"layer": layer}).Add(float64(nbytes))
 
 	status := string(buffer[9:12])
 
+	// Update purged_http_requests_total
 	purgeRequests.With(prometheus.Labels{"status": status, "layer": layer}).Inc()
 	return nil
 }
