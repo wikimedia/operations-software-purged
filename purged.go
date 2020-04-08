@@ -94,12 +94,12 @@ func worker(ch chan string) {
 
 		err = sendPurge(backendConn, parsedURL.Host, parsedURL.Path, "backend")
 		if err != nil {
-			log.Printf("Error purging backend: %s", err)
+			log.Fatalf("Error purging backend: %s", err)
 		}
 
 		err = sendPurge(frontendConn, parsedURL.Host, parsedURL.Path, "frontend")
 		if err != nil {
-			log.Printf("Error purging frontend: %s", err)
+			log.Fatalf("Error purging frontend: %s", err)
 		}
 	}
 }
