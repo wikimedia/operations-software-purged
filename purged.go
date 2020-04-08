@@ -2,14 +2,13 @@ package main
 
 import (
 	"flag"
-	"io"
-	"io/ioutil"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,8 +17,8 @@ import (
 )
 
 var (
-	frontendURL   = flag.String("frontend_url", "http://127.0.0.1:80", "Cache frontend URL")
-	backendURL    = flag.String("backend_url", "http://127.0.0.1:3128", "Cache backend URL")
+	frontendAddr  = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
+	backendAddr   = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
 	mcastAddrs    = flag.String("mcast_addrs", "239.128.0.112:4827,239.128.0.115:4827", "Comma separated list of multicast addresses")
 	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
 	concurrency   = flag.Int("concurrency", runtime.NumCPU(), "Number of purger goroutines")
@@ -28,45 +27,51 @@ var (
 		Help: "Total number of HTTP PURGE sent by status code",
 	}, []string{
 		"status",
-		"url",
+		"layer",
 	})
 	backlog = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "purged_backlog",
 		Help: "Number of messages still to process",
 	})
+	bytesWritten = 0 // XXX turn into prometheus metric
+	bytesRead    = 0 // XXX turn into prometheus metric
 )
 
-func sendPurge(client *http.Client, baseUrl, path, host string) error {
-	rawurl := baseUrl + path
-	req, err := http.NewRequest("PURGE", rawurl, nil)
+const purgeReq = "PURGE %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nUser-Agent: purged\r\n\r\n"
+
+func sendPurge(conn net.Conn, host, uri, layer string) error {
+	nbytes, err := fmt.Fprintf(conn, purgeReq, uri, host)
 	if err != nil {
-		log.Printf("Failed creating request for Host: %s URL=%s. %s\n", host, rawurl, err)
 		return err
 	}
 
-	req.Host = host
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Failed sending request to Host: %s -> %s: %s\n", host, rawurl, err)
-		return err
-	}
-	defer resp.Body.Close()
+	bytesWritten += nbytes
 
-	_, err = io.Copy(ioutil.Discard, resp.Body)
+	buffer := make([]byte, 4096)
+	nbytes, err = conn.Read(buffer)
 	if err != nil {
-		log.Println(err)
 		return err
 	}
 
-	purgeRequests.With(prometheus.Labels{"status": strconv.Itoa(resp.StatusCode), "url": baseUrl}).Inc()
-	return err
+	bytesRead += nbytes
+
+	status := string(buffer[9:12])
+
+	purgeRequests.With(prometheus.Labels{"status": status, "layer": layer}).Inc()
+	return nil
+}
+
+func connOrFatal(addr string) net.Conn {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return conn
 }
 
 func worker(ch chan string) {
-	// Override DefaultTransport and keep it simple: establish one TCP
-	// connection to the backend and one to the frontend for each goroutine.
-	var netTransport = &http.Transport{}
-	client := &http.Client{Transport: netTransport}
+	backendConn := connOrFatal(*backendAddr)
+	frontendConn := connOrFatal(*frontendAddr)
 
 	for rawURL := range ch {
 		parsedURL, err := url.Parse(rawURL)
@@ -75,8 +80,15 @@ func worker(ch chan string) {
 			continue
 		}
 
-		sendPurge(client, *backendURL, parsedURL.Path, parsedURL.Host)
-		sendPurge(client, *frontendURL, parsedURL.Path, parsedURL.Host)
+		err = sendPurge(backendConn, parsedURL.Host, parsedURL.Path, "backend")
+		if err != nil {
+			log.Printf("Error purging backend: %s", err)
+		}
+
+		err = sendPurge(frontendConn, parsedURL.Host, parsedURL.Path, "frontend")
+		if err != nil {
+			log.Printf("Error purging frontend: %s", err)
+		}
 	}
 }
 
