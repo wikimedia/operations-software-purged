@@ -1,3 +1,10 @@
+purged (0.2) buster-wikimedia; urgency=medium
+
+  * New metrics: purged_bytes_{written,read}_total
+  * Fatal on read/write errors
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Thu, 09 Apr 2020 10:56:07 +0200
+
 purged (0.1) buster-wikimedia; urgency=medium
 
   * Initial release (Bug: T249583)
