@@ -1,10 +1,18 @@
 package main
 
 import (
-	"net"
-	"sync"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+
 	"testing"
 )
+
+func assertEquals(t *testing.T, a, b interface{}) {
+	if a != b {
+		t.Errorf("%v != %v", a, b)
+	}
+}
 
 func assertNotErr(t *testing.T, err error) {
 	if err != nil {
@@ -13,38 +21,54 @@ func assertNotErr(t *testing.T, err error) {
 }
 
 func TestSendPurge(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1)
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		assertEquals(t, req.URL.String(), "/wiki/Main_Page")
+		assertEquals(t, req.Method, "PURGE")
+		assertEquals(t, req.Host, "en.wikipedia.org")
+		rw.Write([]byte(`OK`))
+	}))
+	defer server.Close()
+	parsedURL, _ := url.Parse(server.URL)
 
-	server, client := net.Pipe()
+	tcpClient := NewTCPPurger(parsedURL.Host)
+	status, err := tcpClient.Send("en.wikipedia.org", "/wiki/Main_Page")
+	assertEquals(t, status, "200")
+	assertEquals(t, err, nil)
 
-	buf := make([]byte, 4096)
-
-	go func() {
-		sendPurge(server, "en.wikipedia.org", "/wiki/Main_Page", "frontend")
-		server.Close()
-		wg.Done()
-	}()
-
-	expected := "PURGE /wiki/Main_Page HTTP/1.1\r\nHost: en.wikipedia.org\r\nUser-Agent: purged\r\n\r\n"
-
-	nbytes, err := client.Read(buf)
-	assertNotErr(t, err)
-	response := string(buf[:nbytes])
-
-	if response != expected {
-		t.Errorf("PURGE request looks different than expected")
-	}
-	client.Close()
-	wg.Wait()
+	httpClient := NewHTTPPurger(parsedURL.Host)
+	status, err = httpClient.Send("en.wikipedia.org", "/wiki/Main_Page")
+	assertEquals(t, status, "200")
+	assertEquals(t, err, nil)
 }
 
-func BenchmarkSendPurge(b *testing.B) {
-	server, _ := net.Pipe()
+func BenchmarkTCPSendPurge(b *testing.B) {
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write([]byte(`OK`))
+	}))
+	defer server.Close()
 
+	parsedURL, _ := url.Parse(server.URL)
+
+	tcpClient := NewTCPPurger(parsedURL.Host)
+
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		go func() {
-			sendPurge(server, "en.wikipedia.org", "/wiki/Main_Page", "frontend")
-		}()
+		tcpClient.Send("en.wikipedia.org", "/wiki/Main_Page")
+	}
+}
+
+func BenchmarkHTTPSendPurge(b *testing.B) {
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write([]byte(`OK`))
+	}))
+	defer server.Close()
+
+	parsedURL, _ := url.Parse(server.URL)
+
+	httpClient := NewHTTPPurger(parsedURL.Host)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		httpClient.Send("en.wikipedia.org", "/wiki/Main_Page")
 	}
 }
