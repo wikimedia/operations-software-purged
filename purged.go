@@ -39,13 +39,14 @@ const (
 )
 
 var (
-	frontendAddr  = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
-	backendAddr   = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
-	mcastAddrs    = flag.String("mcast_addrs", "239.128.0.112:4827,239.128.0.115:4827", "Comma separated list of multicast addresses")
-	metricsAddr   = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
-	concurrency   = flag.Int("concurrency", 4, "Number of purger goroutines")
-    nethttp       = flag.Bool("nethttp", false, "Use net/http (default false)")
-	purgeRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	frontendAddr     = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
+	backendAddr      = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
+	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112:4827,239.128.0.115:4827", "Comma separated list of multicast addresses")
+	metricsAddr      = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
+	nBackendWorkers  = flag.Int("backend_workers", 4, "Number of backend purger goroutines")
+	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")
+	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
+	purgeRequests    = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
 	}, []string{
@@ -140,19 +141,16 @@ func (p *HTTPPurger) Send(host, uri string) (string, error) {
 	return status, err
 }
 
-func worker(ch chan string) {
+func backendWorker(chin chan string, chout chan string) {
 	var backend PurgeClient
-	var frontend PurgeClient
 
 	if *nethttp {
 		backend = NewHTTPPurger(*backendAddr)
-		frontend = NewHTTPPurger(*frontendAddr)
 	} else {
 		backend = NewTCPPurger(*backendAddr)
-		frontend = NewTCPPurger(*frontendAddr)
 	}
 
-	for rawURL := range ch {
+	for rawURL := range chin {
 		parsedURL, err := url.Parse(rawURL)
 		if err != nil {
 			log.Println("Error parsing", rawURL, err)
@@ -166,7 +164,29 @@ func worker(ch chan string) {
 		// Update purged_http_requests_total
 		purgeRequests.With(prometheus.Labels{"status": status, "layer": "backend"}).Inc()
 
-		status, err = frontend.Send(parsedURL.Host, parsedURL.Path)
+		// Send URL to frontend workers
+		chout <- rawURL
+	}
+}
+
+func frontendWorker(chin chan string) {
+	// XXX: code copy-paster from backend, refactor
+	var frontend PurgeClient
+
+	if *nethttp {
+		frontend = NewHTTPPurger(*frontendAddr)
+	} else {
+		frontend = NewTCPPurger(*frontendAddr)
+	}
+
+	for rawURL := range chin {
+		parsedURL, err := url.Parse(rawURL)
+		if err != nil {
+			log.Println("Error parsing", rawURL, err)
+			continue
+		}
+
+		status, err := frontend.Send(parsedURL.Host, parsedURL.Path)
 		if err != nil {
 			log.Printf("Error purging frontend: %s", err)
 		}
@@ -186,19 +206,25 @@ func main() {
 
 	// Setup reader
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs}
-	ch := make(chan string, 1000000)
-	// Begin producing URLs to ch
-	go pr.Read(ch)
+	chBackend := make(chan string, 1000000)
+	// Begin producing URLs to chBackend for consumption by backend workers
+	go pr.Read(chBackend)
 
-	for i := 0; i < *concurrency; i++ {
-		go worker(ch)
+	// blocking channel for consumption by frontend workers
+	chFrontend := make(chan string, 1000000)
+	for i := 0; i < *nBackendWorkers; i++ {
+		go backendWorker(chBackend, chFrontend)
 	}
 
-	log.Printf("Process purged started with %d workers. Metrics at %s/metrics\n", *concurrency, *metricsAddr)
+	for i := 0; i < *nFrontendWorkers; i++ {
+		go frontendWorker(chFrontend)
+	}
+
+	log.Printf("Process purged started with %d backend and %d frontend workers. Metrics at %s/metrics\n", *nBackendWorkers, *nFrontendWorkers, *metricsAddr)
 
 	for {
 		// Update purged_backlog metric
 		time.Sleep(1000 * time.Millisecond)
-		backlog.Set(float64(len(ch)))
+		backlog.Set(float64(len(chBackend)))
 	}
 }
