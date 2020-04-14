@@ -210,7 +210,7 @@ func main() {
 	// Begin producing URLs to chBackend for consumption by backend workers
 	go pr.Read(chBackend)
 
-	// blocking channel for consumption by frontend workers
+	// channel for consumption by frontend workers
 	chFrontend := make(chan string, 1000000)
 	for i := 0; i < *nBackendWorkers; i++ {
 		go backendWorker(chBackend, chFrontend)

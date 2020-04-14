@@ -1,3 +1,10 @@
+purged (0.3) buster-wikimedia; urgency=medium
+
+  * Distinguish between frontend and backend workers
+  * Automatically reconnect in case of errors
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Tue, 14 Apr 2020 11:47:30 +0200
+
 purged (0.2) buster-wikimedia; urgency=medium
 
   * New metrics: purged_bytes_{written,read}_total
