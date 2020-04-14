@@ -3,7 +3,7 @@ purged: test
 	strip purged
 
 test:
-	GOPATH=/usr/share/gocode go test -bench . -v
+	GOCACHE=/tmp GOPATH=/usr/share/gocode go test -bench . -v
 
 clean:
 	-rm purged

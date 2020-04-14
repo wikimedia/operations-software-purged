@@ -36,6 +36,7 @@ type HTTPPurger struct {
 const (
 	purgeReq           = "PURGE %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: purged\r\n\r\n"
 	connectionAttempts = 16
+	bufferLen          = 1000000
 )
 
 var (
@@ -141,13 +142,13 @@ func (p *HTTPPurger) Send(host, uri string) (string, error) {
 	return status, err
 }
 
-func backendWorker(chin chan string, chout chan string) {
+func backendWorker(addr string, chin chan string, chout chan url.URL) {
 	var backend PurgeClient
 
 	if *nethttp {
-		backend = NewHTTPPurger(*backendAddr)
+		backend = NewHTTPPurger(addr)
 	} else {
-		backend = NewTCPPurger(*backendAddr)
+		backend = NewTCPPurger(addr)
 	}
 
 	for rawURL := range chin {
@@ -164,34 +165,39 @@ func backendWorker(chin chan string, chout chan string) {
 		// Update purged_http_requests_total
 		purgeRequests.With(prometheus.Labels{"status": status, "layer": "backend"}).Inc()
 
-		// Send URL to frontend workers
-		chout <- rawURL
+		// Send parsed URL to frontend workers
+		chout <- *parsedURL
 	}
 }
 
-func frontendWorker(chin chan string) {
-	// XXX: code copy-paster from backend, refactor
+func frontendWorker(addr string, chin chan url.URL) {
 	var frontend PurgeClient
 
 	if *nethttp {
-		frontend = NewHTTPPurger(*frontendAddr)
+		frontend = NewHTTPPurger(addr)
 	} else {
-		frontend = NewTCPPurger(*frontendAddr)
+		frontend = NewTCPPurger(addr)
 	}
 
-	for rawURL := range chin {
-		parsedURL, err := url.Parse(rawURL)
-		if err != nil {
-			log.Println("Error parsing", rawURL, err)
-			continue
-		}
-
+	for parsedURL := range chin {
 		status, err := frontend.Send(parsedURL.Host, parsedURL.Path)
 		if err != nil {
 			log.Printf("Error purging frontend: %s", err)
 		}
 		// Update purged_http_requests_total
 		purgeRequests.With(prometheus.Labels{"status": status, "layer": "frontend"}).Inc()
+	}
+}
+
+func startWorkers(beAddr, feAddr string, chBackend chan string) {
+	// channel for consumption by frontend workers
+	chFrontend := make(chan url.URL, bufferLen)
+	for i := 0; i < *nBackendWorkers; i++ {
+		go backendWorker(beAddr, chBackend, chFrontend)
+	}
+
+	for i := 0; i < *nFrontendWorkers; i++ {
+		go frontendWorker(feAddr, chFrontend)
 	}
 }
 
@@ -206,19 +212,12 @@ func main() {
 
 	// Setup reader
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs}
-	chBackend := make(chan string, 1000000)
+	chBackend := make(chan string, bufferLen)
 	// Begin producing URLs to chBackend for consumption by backend workers
 	go pr.Read(chBackend)
 
-	// channel for consumption by frontend workers
-	chFrontend := make(chan string, 1000000)
-	for i := 0; i < *nBackendWorkers; i++ {
-		go backendWorker(chBackend, chFrontend)
-	}
-
-	for i := 0; i < *nFrontendWorkers; i++ {
-		go frontendWorker(chFrontend)
-	}
+	// Start backend and frontend workers
+	startWorkers(*backendAddr, *frontendAddr, chBackend)
 
 	log.Printf("Process purged started with %d backend and %d frontend workers. Metrics at %s/metrics\n", *nBackendWorkers, *nFrontendWorkers, *metricsAddr)
 
