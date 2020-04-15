@@ -1,3 +1,9 @@
+purged (0.5) buster-wikimedia; urgency=medium
+
+  * Purge full request URI, not just the path.
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Wed, 15 Apr 2020 11:25:45 +0200
+
 purged (0.4) buster-wikimedia; urgency=medium
 
   * Parse URL only once in the backend goroutine

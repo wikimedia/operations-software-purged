@@ -158,7 +158,7 @@ func backendWorker(addr string, chin chan string, chout chan url.URL) {
 			continue
 		}
 
-		status, err := backend.Send(parsedURL.Host, parsedURL.Path)
+		status, err := backend.Send(parsedURL.Host, parsedURL.RequestURI())
 		if err != nil {
 			log.Printf("Error purging backend: %s", err)
 		}
@@ -180,7 +180,7 @@ func frontendWorker(addr string, chin chan url.URL) {
 	}
 
 	for parsedURL := range chin {
-		status, err := frontend.Send(parsedURL.Host, parsedURL.Path)
+		status, err := frontend.Send(parsedURL.Host, parsedURL.RequestURI())
 		if err != nil {
 			log.Printf("Error purging frontend: %s", err)
 		}

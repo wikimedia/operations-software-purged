@@ -75,6 +75,21 @@ func BenchmarkHTTPSendPurge(b *testing.B) {
 	}
 }
 
+func assertListEquals(t *testing.T, a, b []string) {
+	if len(a) != len(b) {
+		t.Errorf("len(%v) != len(%v)", a, b)
+	}
+
+	sort.Strings(a)
+	sort.Strings(b)
+
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			t.Errorf("a[%d] != b[%d] (%v != %v)", i, i, a[i], b[i])
+		}
+	}
+}
+
 func TestWorkers(t *testing.T) {
 	var feURLs []string
 	var beURLs []string
@@ -97,21 +112,22 @@ func TestWorkers(t *testing.T) {
 
 	testCh <- "https://en.wikipedia.org/wiki/Main_Page"
 	testCh <- "https://it.wikipedia.org/wiki/Pagina_principale"
+	testCh <- "http://en.m.wikipedia.org/w/index.php?title=User_talk:127.0.0.1&action=history"
 
 	startWorkers(backendURL.Host, frontendURL.Host, testCh)
 
 	// Wait for all URLs in the channel to be consumed
-	for ; len(feURLs) < 2 && len(beURLs) < 2; time.Sleep(100 * time.Millisecond) {
+	for ; len(feURLs) < 3 && len(beURLs) < 3; time.Sleep(100 * time.Millisecond) {
 	}
 
 	assertEquals(t, len(feURLs), len(beURLs))
-	assertEquals(t, len(feURLs), 2)
+	assertEquals(t, len(feURLs), 3)
 
-	sort.Strings(feURLs)
-	sort.Strings(beURLs)
-
-	assertEquals(t, sort.SearchStrings(feURLs, "/wiki/Main_Page"), 0)
-	assertEquals(t, sort.SearchStrings(feURLs, "/wiki/Pagina_principale"), 1)
-	assertEquals(t, sort.SearchStrings(beURLs, "/wiki/Main_Page"), 0)
-	assertEquals(t, sort.SearchStrings(beURLs, "/wiki/Pagina_principale"), 1)
+	expected := []string{
+		"/w/index.php?title=User_talk:127.0.0.1&action=history",
+		"/wiki/Main_Page",
+		"/wiki/Pagina_principale",
+	}
+	assertListEquals(t, feURLs, expected)
+	assertListEquals(t, beURLs, expected)
 }
