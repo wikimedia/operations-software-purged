@@ -43,6 +43,7 @@ var (
 	frontendAddr     = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
 	backendAddr      = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
 	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112,239.128.0.115", "Comma separated list of multicast addresses")
+	mcastBufSize     = flag.Int("mcast_bufsize", 16777216, "Multicast reader kernel buffer size")
 	metricsAddr      = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
 	nBackendWorkers  = flag.Int("backend_workers", 4, "Number of backend purger goroutines")
 	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")
@@ -211,7 +212,7 @@ func main() {
 	}()
 
 	// Setup reader
-	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs}
+	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs, kbufSize: *mcastBufSize}
 	chBackend := make(chan string, bufferLen)
 	// Begin producing URLs to chBackend for consumption by backend workers
 	go pr.Read(chBackend)

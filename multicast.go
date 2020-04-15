@@ -15,9 +15,11 @@ type PurgeReader interface {
 
 type MultiCastReader struct {
 	maxDatagramSize int
-	bytesRead       int
-	badPackets      int
-	mcastAddrs      string
+	// how big we try to set the kernel buffer via setsockopt()
+	kbufSize   int
+	bytesRead  int
+	badPackets int
+	mcastAddrs string
 }
 
 // Continuously read from the given multicast addresses, extract URLs to be
@@ -26,6 +28,10 @@ type MultiCastReader struct {
 func (pr MultiCastReader) readFromAddrs(churls chan string, mcastAddrs string) {
 	conn, err := net.ListenPacket("udp4", "0.0.0.0:4827")
 	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := conn.(*net.UDPConn).SetReadBuffer(pr.kbufSize); err != nil {
 		log.Fatal(err)
 	}
 
