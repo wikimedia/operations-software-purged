@@ -117,7 +117,7 @@ func TestWorkers(t *testing.T) {
 	startWorkers(backendURL.Host, frontendURL.Host, testCh)
 
 	// Wait for all URLs in the channel to be consumed
-	for ; len(feURLs) < 3 && len(beURLs) < 3; time.Sleep(100 * time.Millisecond) {
+	for ; len(feURLs) < 3 || len(beURLs) < 3; time.Sleep(100 * time.Millisecond) {
 	}
 
 	assertEquals(t, len(feURLs), len(beURLs))
