@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"strings"
+
+	"golang.org/x/net/ipv4"
 )
 
 type PurgeReader interface {
@@ -18,27 +20,31 @@ type MultiCastReader struct {
 	mcastAddrs      string
 }
 
-// Continuously read from the given multicast address, extract URLs to be
+// Continuously read from the given multicast addresses, extract URLs to be
 // purged and quickly offload the data to the provided buffered channel
 // "churls".
-func (pr MultiCastReader) readFromAddr(churls chan string, mcastAddr string) {
-	addr, err := net.ResolveUDPAddr("udp4", mcastAddr)
+func (pr MultiCastReader) readFromAddrs(churls chan string, mcastAddrs string) {
+	conn, err := net.ListenPacket("udp4", "0.0.0.0:4827")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
-	if err != nil {
-		log.Fatal(err)
+	p := ipv4.NewPacketConn(conn)
+
+	for _, addr := range strings.Split(mcastAddrs, ",") {
+		g := net.ParseIP(addr)
+
+		if err := p.JoinGroup(nil, &net.UDPAddr{IP: g}); err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	conn.SetReadBuffer(pr.maxDatagramSize)
 	buffer := make([]byte, pr.maxDatagramSize)
 
-	log.Printf("Reading from %s with maximum datagram size %d", mcastAddr, pr.maxDatagramSize)
+	log.Printf("Reading from %s with maximum datagram size %d", mcastAddrs, pr.maxDatagramSize)
 
 	for {
-		readBytes, src, err := conn.ReadFromUDP(buffer)
+		readBytes, _, src, err := p.ReadFrom(buffer)
 		if err != nil {
 			log.Println("Error while reading from", src, "->", err)
 			continue
@@ -78,7 +84,5 @@ func (pr MultiCastReader) readFromAddr(churls chan string, mcastAddr string) {
 }
 
 func (pr MultiCastReader) Read(churls chan string) {
-	for _, addr := range strings.Split(pr.mcastAddrs, ",") {
-		go pr.readFromAddr(churls, addr)
-	}
+	pr.readFromAddrs(churls, pr.mcastAddrs)
 }

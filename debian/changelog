@@ -1,3 +1,9 @@
+purged (0.6) buster-wikimedia; urgency=medium
+
+  * Use golang.org/x/net/ipv4 for the multicast reader.
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Wed, 15 Apr 2020 17:01:52 +0200
+
 purged (0.5) buster-wikimedia; urgency=medium
 
   * Purge full request URI, not just the path.

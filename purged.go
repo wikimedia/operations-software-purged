@@ -42,7 +42,7 @@ const (
 var (
 	frontendAddr     = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
 	backendAddr      = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
-	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112:4827,239.128.0.115:4827", "Comma separated list of multicast addresses")
+	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112,239.128.0.115", "Comma separated list of multicast addresses")
 	metricsAddr      = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
 	nBackendWorkers  = flag.Int("backend_workers", 4, "Number of backend purger goroutines")
 	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")

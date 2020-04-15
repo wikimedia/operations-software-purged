@@ -3,7 +3,7 @@ Section: web
 Priority: optional
 Maintainer: Emanuele Rocca <ema@wikimedia.org>
 Uploaders: Valentin Gutierrez <vgutierrez@wikimedia.org>
-Build-Depends: debhelper (>= 10), golang-github-prometheus-client-golang-dev, golang-go
+Build-Depends: debhelper (>= 10), golang-github-prometheus-client-golang-dev, golang-golang-x-net-dev, golang-go
 Standards-Version: 4.2.1
 
 Package: purged
