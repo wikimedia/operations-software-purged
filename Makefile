@@ -7,3 +7,7 @@ test:
 
 clean:
 	-rm purged
+
+cover:
+	GOPATH=/usr/share/gocode go test -coverprofile=/tmp/coverage.out
+	go tool cover -html=/tmp/coverage.out

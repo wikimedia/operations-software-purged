@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -26,6 +28,7 @@ const (
 	stateLabel = "state"
 	goodValue  = "good"
 	badValue   = "bad"
+	minHTCPLen = 20
 )
 
 var (
@@ -40,6 +43,50 @@ var (
 		Help: "Total number of UDP bytes read",
 	})
 )
+
+func extractURL(buffer []byte, n int) (string, error) {
+	if buffer == nil {
+		htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
+		return "", errors.New("Rejecting HTCP packet, buffer is nil")
+	}
+
+	bytesRead.Add(float64(n))
+
+	if n < minHTCPLen {
+		htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
+		return "", errors.New(fmt.Sprintf("Rejecting HTCP packet, size smaller than %v", minHTCPLen))
+	}
+
+	// CLR opcode
+	if buffer[6] != 4 {
+		htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
+		return "", errors.New("Rejecting HTCP packet, no CLR opcode")
+	}
+
+	// start offset for data section
+	var offset uint16 = 14
+
+	// Method field
+	method_len := binary.BigEndian.Uint16(buffer[offset : offset+2])
+	offset += 2
+
+	// skip method
+	offset += method_len
+
+	// URL length field
+	url_len := binary.BigEndian.Uint16(buffer[offset : offset+2])
+	offset += 2
+
+	if url_len == 0 {
+		htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
+		return "", errors.New("Rejecting HTCP packet, URL len is zero")
+	}
+
+	// Good packet received
+	htcpPackets.With(prometheus.Labels{stateLabel: goodValue}).Inc()
+
+	return string(buffer[offset : offset+url_len]), nil
+}
 
 // Continuously read from the given multicast addresses, extract URLs to be
 // purged and quickly offload the data to the provided buffered channel
@@ -75,39 +122,13 @@ func (pr MultiCastReader) readFromAddrs(churls chan string, mcastAddrs string) {
 			continue
 		}
 
-		bytesRead.Add(float64(readBytes))
-
-		// CLR opcode
-		if buffer[6] != 4 {
-			htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
-			log.Println("Rejecting HTCP packet, no CLR opcode")
+		url, err := extractURL(buffer, readBytes)
+		if err != nil {
+			log.Println(err)
 			continue
 		}
 
-		// start offset for data section
-		var offset uint16 = 14
-
-		// Method field
-		method_len := binary.BigEndian.Uint16(buffer[offset : offset+2])
-		offset += 2
-
-		// skip method
-		offset += method_len
-
-		// URL length field
-		url_len := binary.BigEndian.Uint16(buffer[offset : offset+2])
-		offset += 2
-
-		if url_len == 0 {
-			htcpPackets.With(prometheus.Labels{stateLabel: badValue}).Inc()
-			log.Println("Rejecting HTCP packet, URL len is zero")
-			continue
-		}
-
-		// Good packet received
-		htcpPackets.With(prometheus.Labels{stateLabel: goodValue}).Inc()
-
-		churls <- string(buffer[offset : offset+url_len])
+		churls <- url
 	}
 }
 
