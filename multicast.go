@@ -19,8 +19,6 @@ type MultiCastReader struct {
 	maxDatagramSize int
 	// how big we try to set the kernel buffer via setsockopt()
 	kbufSize   int
-	bytesRead  int
-	badPackets int
 	mcastAddrs string
 }
 
@@ -36,6 +34,10 @@ var (
 		Help: "Total number of HTCP packets received",
 	}, []string{
 		stateLabel,
+	})
+	bytesRead = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "purged_udp_bytes_read_total",
+		Help: "Total number of UDP bytes read",
 	})
 )
 
@@ -73,7 +75,7 @@ func (pr MultiCastReader) readFromAddrs(churls chan string, mcastAddrs string) {
 			continue
 		}
 
-		pr.bytesRead += readBytes
+		bytesRead.Add(float64(readBytes))
 
 		// CLR opcode
 		if buffer[6] != 4 {

@@ -1,3 +1,9 @@
+purged (0.8) UNRELEASED; urgency=medium
+
+  * Add metric 'purged_udp_bytes_read_total'
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Fri, 17 Apr 2020 09:24:33 +0200
+
 purged (0.7) buster-wikimedia; urgency=medium
 
   * Add metric 'purged_htcp_packets_total' and frontend backlog to
