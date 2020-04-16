@@ -1,3 +1,12 @@
+purged (0.7) buster-wikimedia; urgency=medium
+
+  * Add metric 'purged_htcp_packets_total' and frontend backlog to
+    'purged_backlog'.
+  * New flag -mcast_bufsize to set multicast reader kernel buffer via
+    setsockopt()
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Thu, 16 Apr 2020 10:08:21 +0200
+
 purged (0.6) buster-wikimedia; urgency=medium
 
   * Use golang.org/x/net/ipv4 for the multicast reader.
