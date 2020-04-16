@@ -37,6 +37,10 @@ const (
 	purgeReq           = "PURGE %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: purged\r\n\r\n"
 	connectionAttempts = 16
 	bufferLen          = 1000000
+	statusLabel        = "status"
+	layerLabel         = "layer"
+	backendValue       = "backend"
+	frontendValue      = "frontend"
 )
 
 var (
@@ -52,12 +56,14 @@ var (
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
 	}, []string{
-		"status",
-		"layer",
+		statusLabel,
+		layerLabel,
 	})
-	backlog = promauto.NewGauge(prometheus.GaugeOpts{
+	backlog = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "purged_backlog",
-		Help: "Number of messages still to process",
+		Help: "Number of messages still to be processed by backend and frontend workers",
+	}, []string{
+		layerLabel,
 	})
 )
 
@@ -164,7 +170,7 @@ func backendWorker(addr string, chin chan string, chout chan url.URL) {
 			log.Printf("Error purging backend: %s", err)
 		}
 		// Update purged_http_requests_total
-		purgeRequests.With(prometheus.Labels{"status": status, "layer": "backend"}).Inc()
+		purgeRequests.With(prometheus.Labels{statusLabel: status, layerLabel: backendValue}).Inc()
 
 		// Send parsed URL to frontend workers
 		chout <- *parsedURL
@@ -186,13 +192,11 @@ func frontendWorker(addr string, chin chan url.URL) {
 			log.Printf("Error purging frontend: %s", err)
 		}
 		// Update purged_http_requests_total
-		purgeRequests.With(prometheus.Labels{"status": status, "layer": "frontend"}).Inc()
+		purgeRequests.With(prometheus.Labels{statusLabel: status, layerLabel: frontendValue}).Inc()
 	}
 }
 
-func startWorkers(beAddr, feAddr string, chBackend chan string) {
-	// channel for consumption by frontend workers
-	chFrontend := make(chan url.URL, bufferLen)
+func startWorkers(beAddr, feAddr string, chBackend chan string, chFrontend chan url.URL) {
 	for i := 0; i < *nBackendWorkers; i++ {
 		go backendWorker(beAddr, chBackend, chFrontend)
 	}
@@ -217,14 +221,19 @@ func main() {
 	// Begin producing URLs to chBackend for consumption by backend workers
 	go pr.Read(chBackend)
 
+	// channel for consumption by frontend workers
+	chFrontend := make(chan url.URL, bufferLen)
+
 	// Start backend and frontend workers
-	startWorkers(*backendAddr, *frontendAddr, chBackend)
+	startWorkers(*backendAddr, *frontendAddr, chBackend, chFrontend)
 
 	log.Printf("Process purged started with %d backend and %d frontend workers. Metrics at %s/metrics\n", *nBackendWorkers, *nFrontendWorkers, *metricsAddr)
 
 	for {
 		// Update purged_backlog metric
 		time.Sleep(1000 * time.Millisecond)
-		backlog.Set(float64(len(chBackend)))
+
+		backlog.With(prometheus.Labels{layerLabel: backendValue}).Set(float64(len(chBackend)))
+		backlog.With(prometheus.Labels{layerLabel: frontendValue}).Set(float64(len(chFrontend)))
 	}
 }

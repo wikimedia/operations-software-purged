@@ -109,12 +109,13 @@ func TestWorkers(t *testing.T) {
 	frontendURL, _ := url.Parse(frontend.URL)
 
 	testCh := make(chan string, 10)
+	testFrCh := make(chan url.URL, 10)
 
 	testCh <- "https://en.wikipedia.org/wiki/Main_Page"
 	testCh <- "https://it.wikipedia.org/wiki/Pagina_principale"
 	testCh <- "http://en.m.wikipedia.org/w/index.php?title=User_talk:127.0.0.1&action=history"
 
-	startWorkers(backendURL.Host, frontendURL.Host, testCh)
+	startWorkers(backendURL.Host, frontendURL.Host, testCh, testFrCh)
 
 	// Wait for all URLs in the channel to be consumed
 	for ; len(feURLs) < 3 || len(beURLs) < 3; time.Sleep(100 * time.Millisecond) {
