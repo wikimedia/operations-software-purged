@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"sort"
 	"time"
 
@@ -90,9 +91,10 @@ func assertListEquals(t *testing.T, a, b []string) {
 	}
 }
 
-func TestWorkers(t *testing.T) {
+func testWorkersWrapper(t *testing.T, re *regexp.Regexp, input []string, expected []string) {
 	var feURLs []string
 	var beURLs []string
+	expectedLen := len(expected)
 
 	backend := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		beURLs = append(beURLs, req.URL.String())
@@ -111,24 +113,51 @@ func TestWorkers(t *testing.T) {
 	testCh := make(chan string, 10)
 	testFrCh := make(chan url.URL, 10)
 
-	testCh <- "https://en.wikipedia.org/wiki/Main_Page"
-	testCh <- "https://it.wikipedia.org/wiki/Pagina_principale"
-	testCh <- "http://en.m.wikipedia.org/w/index.php?title=User_talk:127.0.0.1&action=history"
+	for _, url := range input {
+		testCh <- url
+	}
 
-	startWorkers(backendURL.Host, frontendURL.Host, testCh, testFrCh)
+	startWorkers(backendURL.Host, frontendURL.Host, testCh, testFrCh, re)
 
 	// Wait for all URLs in the channel to be consumed
-	for ; len(feURLs) < 3 || len(beURLs) < 3; time.Sleep(100 * time.Millisecond) {
+	for ; len(feURLs) < expectedLen || len(beURLs) < expectedLen; time.Sleep(100 * time.Millisecond) {
 	}
 
 	assertEquals(t, len(feURLs), len(beURLs))
-	assertEquals(t, len(feURLs), 3)
+	assertEquals(t, len(feURLs), expectedLen)
+
+	assertListEquals(t, feURLs, expected)
+	assertListEquals(t, beURLs, expected)
+}
+
+func TestWorkers(t *testing.T) {
+	input := []string{
+		"https://en.wikipedia.org/wiki/Main_Page",
+		"https://it.wikipedia.org/wiki/Pagina_principale",
+		"http://en.m.wikipedia.org/w/index.php?title=User_talk:127.0.0.1&action=history",
+	}
 
 	expected := []string{
 		"/w/index.php?title=User_talk:127.0.0.1&action=history",
 		"/wiki/Main_Page",
 		"/wiki/Pagina_principale",
 	}
-	assertListEquals(t, feURLs, expected)
-	assertListEquals(t, beURLs, expected)
+
+	testWorkersWrapper(t, nil, input, expected)
+}
+
+func TestWorkersRegexp(t *testing.T) {
+	re := regexp.MustCompile("[um][pa][lp][os]")
+	input := []string{
+		"https://en.wikipedia.org/wiki/Main_Page",
+		"https://it.wikipedia.org/wiki/Pagina_principale",
+		"https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Flag_of_Italy_%281861%E2%80%931946%29.svg/20px-Flag_of_Italy_%281861%E2%80%931946%29.svg.png",
+		"http://en.m.wikipedia.org/w/index.php?title=User_talk:127.0.0.1&action=history",
+	}
+
+	expected := []string{
+		"/wikipedia/commons/thumb/7/78/Flag_of_Italy_%281861%E2%80%931946%29.svg/20px-Flag_of_Italy_%281861%E2%80%931946%29.svg.png",
+	}
+
+	testWorkersWrapper(t, re, input, expected)
 }

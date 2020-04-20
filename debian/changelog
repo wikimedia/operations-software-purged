@@ -2,6 +2,7 @@ purged (0.8) UNRELEASED; urgency=medium
 
   * Add metric 'purged_udp_bytes_read_total'
   * multicast: test URL extraction
+  * Add Host regex filtering
 
  -- Emanuele Rocca <ema@wikimedia.org>  Mon, 20 Apr 2020 11:43:06 +0200
 

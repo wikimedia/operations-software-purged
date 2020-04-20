@@ -11,6 +11,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -49,6 +50,7 @@ var (
 	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112,239.128.0.115", "Comma separated list of multicast addresses")
 	mcastBufSize     = flag.Int("mcast_bufsize", 16777216, "Multicast reader kernel buffer size")
 	metricsAddr      = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
+	hostRegex        = flag.String("host_regex", "", "Regex filter for valid purge hostnames (default unfiltered)")
 	nBackendWorkers  = flag.Int("backend_workers", 4, "Number of backend purger goroutines")
 	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")
 	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
@@ -149,7 +151,7 @@ func (p *HTTPPurger) Send(host, uri string) (string, error) {
 	return status, err
 }
 
-func backendWorker(addr string, chin chan string, chout chan url.URL) {
+func backendWorker(addr string, chin chan string, chout chan url.URL, re *regexp.Regexp) {
 	var backend PurgeClient
 
 	if *nethttp {
@@ -162,6 +164,10 @@ func backendWorker(addr string, chin chan string, chout chan url.URL) {
 		parsedURL, err := url.Parse(rawURL)
 		if err != nil {
 			log.Println("Error parsing", rawURL, err)
+			continue
+		}
+
+		if re != nil && !re.Match([]byte(parsedURL.Host)) {
 			continue
 		}
 
@@ -196,9 +202,9 @@ func frontendWorker(addr string, chin chan url.URL) {
 	}
 }
 
-func startWorkers(beAddr, feAddr string, chBackend chan string, chFrontend chan url.URL) {
+func startWorkers(beAddr, feAddr string, chBackend chan string, chFrontend chan url.URL, re *regexp.Regexp) {
 	for i := 0; i < *nBackendWorkers; i++ {
-		go backendWorker(beAddr, chBackend, chFrontend)
+		go backendWorker(beAddr, chBackend, chFrontend, re)
 	}
 
 	for i := 0; i < *nFrontendWorkers; i++ {
@@ -225,7 +231,13 @@ func main() {
 	chFrontend := make(chan url.URL, bufferLen)
 
 	// Start backend and frontend workers
-	startWorkers(*backendAddr, *frontendAddr, chBackend, chFrontend)
+	var re *regexp.Regexp
+	if *hostRegex != "" {
+		re = regexp.MustCompile(*hostRegex)
+	} else {
+		re = nil
+	}
+	startWorkers(*backendAddr, *frontendAddr, chBackend, chFrontend, re)
 
 	log.Printf("Process purged started with %d backend and %d frontend workers. Metrics at %s/metrics\n", *nBackendWorkers, *nFrontendWorkers, *metricsAddr)
 
