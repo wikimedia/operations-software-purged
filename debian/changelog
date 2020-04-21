@@ -1,4 +1,4 @@
-purged (0.8) UNRELEASED; urgency=medium
+purged (0.8) buster-wikimedia; urgency=medium
 
   * Add metric 'purged_udp_bytes_read_total'
   * multicast: test URL extraction
