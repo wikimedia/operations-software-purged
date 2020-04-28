@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -37,11 +38,13 @@ type HTTPPurger struct {
 const (
 	purgeReq           = "PURGE %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: purged\r\n\r\n"
 	connectionAttempts = 16
+	sendAttempts       = 10
 	bufferLen          = 1000000
 	statusLabel        = "status"
 	layerLabel         = "layer"
 	backendValue       = "backend"
 	frontendValue      = "frontend"
+	typeLabel          = "type"
 )
 
 var (
@@ -60,6 +63,12 @@ var (
 	}, []string{
 		statusLabel,
 		layerLabel,
+	})
+	tcpErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "purged_tcp_errors_total",
+		Help: "Total number of TCP read/write errors",
+	}, []string{
+		typeLabel,
 	})
 	backlog = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "purged_backlog",
@@ -92,28 +101,46 @@ func NewTCPPurger(addr string) *TCPPurger {
 func (p *TCPPurger) Send(host, uri string) (string, error) {
 	buffer := make([]byte, 4096)
 
-	for {
+	var errType string
+
+	for i := 0; i < sendAttempts; i++ {
 		_, err := fmt.Fprintf(p.conn, purgeReq, uri, host)
-		if err == nil {
-			break
-		} else {
-			// try reconnecting on any sort of request errors till we finally
-			// manage to send our request. Give up with a fatal only after
-			// connectionAttempts is reached.
+		if err != nil {
+			// OpErrors are common (eg: broken pipe), we don't need to log
+			// them. Incrementing the relevant metric is enough.
+			if opErr, ok := err.(*net.OpError); ok {
+				errType = opErr.Err.Error()
+			} else {
+				errType = "write"
+				log.Printf("Write error: %v\n", err)
+			}
+
+			tcpErrors.With(prometheus.Labels{typeLabel: errType}).Inc()
 			p.conn = connOrFatal(p.destAddr)
+			continue
+		}
+
+		_, err = p.conn.Read(buffer)
+		if err != nil {
+			// EOF errors are common (connection closed), we don't need to log
+			// them. Incrementing the relevant metric is enough.
+			if err == io.EOF {
+				errType = "EOF"
+			} else {
+				errType = "read"
+				log.Printf("Read error: %v\n", err)
+			}
+			tcpErrors.With(prometheus.Labels{typeLabel: errType}).Inc()
+			p.conn = connOrFatal(p.destAddr)
+			continue
+		} else {
+			// Both write and read were successful
+			status := string(buffer[9:12])
+			return status, nil
 		}
 	}
 
-	_, err := p.conn.Read(buffer)
-	if err != nil {
-		// on response errors, try reconnecting but other than that do not
-		// bother too much reading the response status code.
-		p.conn = connOrFatal(p.destAddr)
-		return "", err
-	} else {
-		status := string(buffer[9:12])
-		return status, nil
-	}
+	return "", errors.New(fmt.Sprintf("Failed purging %s (Host: %s) after %d attempts", uri, host, sendAttempts))
 }
 
 func NewHTTPPurger(addr string) *HTTPPurger {

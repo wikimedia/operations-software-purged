@@ -1,3 +1,10 @@
+purged (0.9) UNRELEASED; urgency=medium
+
+  * Retry sending requests up to 'sendAttempts' times
+  * Add metric 'purged_tcp_errors_total'
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Tue, 28 Apr 2020 11:28:38 +0200
+
 purged (0.8) buster-wikimedia; urgency=medium
 
   * Add metric 'purged_udp_bytes_read_total'
