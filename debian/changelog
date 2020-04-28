@@ -1,4 +1,4 @@
-purged (0.9) UNRELEASED; urgency=medium
+purged (0.9) buster-wikimedia; urgency=medium
 
   * Retry sending requests up to 'sendAttempts' times
   * Add metric 'purged_tcp_errors_total'
