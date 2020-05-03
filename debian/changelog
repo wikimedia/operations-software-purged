@@ -1,3 +1,9 @@
+purged (0.11) UNRELEASED; urgency=medium
+
+  * Add the ability to consume from kafka
+
+ -- Giuseppe Lavagetto <glavagetto@wikimedia.org>  Wed, 06 May 2020 15:37:47 +0200
+
 purged (0.10) buster-wikimedia; urgency=medium
 
   * Add copyright notices

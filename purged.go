@@ -28,8 +28,12 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
+	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -74,6 +78,8 @@ var (
 	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")
 	frontendDelay    = flag.Int("frontend_delay", 1000, "Delay in milliseconds between backend and frontend PURGE")
 	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
+	kafkaTopics      = flag.String("topics", "", "Optional, comma-separated list of kafka topics to listen to.")
+	kafkaConfigFile  = flag.String("kafkaConfig", "/etc/purgedkafka.conf", "Kafka configuration file")
 	purgeRequests    = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
@@ -276,7 +282,41 @@ func main() {
 
 	// Setup reader
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs, kbufSize: *mcastBufSize}
+
 	chBackend := make(chan string, bufferLen)
+
+	// If we're also listening on kafka, setup the kafka reader too
+	if *kafkaTopics != "" {
+		// Given kafka has an eventloop, we need to reliably signal it that the work is done when exiting
+		sigchan := make(chan os.Signal, 1)
+		// We stop execution on signals SIGTERM and SIGINT
+		signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
+		// Channel to notify the goroutines.
+		done := make(chan struct{})
+		go func() {
+			for sig := range sigchan {
+				log.Printf("Exiting on signal %v", sig)
+				// Send kafka a message telling it to stop
+				m := struct{}{}
+				done <- m
+				// Wait for kafka to communicate back by closing the channel
+				<-done
+				os.Exit(0)
+			}
+		}()
+
+		log.Printf("Listening for topics %s", *kafkaTopics)
+		topics := strings.Split(*kafkaTopics, ",")
+		kafkaPr, err := NewKafkaReader(*kafkaConfigFile, topics, done)
+		if err != nil {
+			log.Fatal(err)
+		}
+		go func(c chan string) {
+			kafkaPr.Read(c)
+			log.Println("Kafka connection stopped")
+		}(chBackend)
+	}
+
 	// Begin producing URLs to chBackend for consumption by backend workers
 	go pr.Read(chBackend)
 
