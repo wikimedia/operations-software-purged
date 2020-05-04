@@ -5,6 +5,10 @@ purged: test
 test:
 	GOCACHE=/tmp GOPATH=/usr/share/gocode go test -bench . -v
 
+# Runs an integration environment with messages produced to kafka
+integration: purged
+	$(CURDIR)/integration/run.sh
+
 clean:
 	-rm purged
 

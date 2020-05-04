@@ -1,0 +1,53 @@
+# The zookeeper/kafka configuration is taken from https://gist.github.com/mhowlett/14f70af1a5b44fba80c9d1857a44bb98
+---
+version: "2"
+services:
+  zk:
+    image: confluentinc/cp-zookeeper:3.0.1
+    ports:
+      - "22181:22181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 22181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zk:22888:23888
+  kafka:
+    image: confluentinc/cp-kafka:3.0.1
+    ports:
+      - "19092:19092"
+    depends_on:
+      - zk
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: ${MY_IP}:22181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${MY_IP}:19092
+  producer:
+    image: confluentinc/cp-kafkacat:latest
+    depends_on:
+      - kafka
+    volumes:
+      - ./integration/producer:/data
+      - ./integration/producer/submit-messages.sh:/bin/entrypoint
+    environment:
+      MY_IP: ${MY_IP}
+    command: [/bin/entrypoint]
+  web:
+    image: nginx
+    ports:
+      - "3128:3128"
+      - "8080:8080"
+    volumes:
+      - ./integration/web/nginx.conf:/etc/nginx/conf.d/default.conf
+  purged:
+    build: .
+    volumes:
+      - ./purged:/usr/bin/purged
+      - ./integration/entrypoint.sh:/bin/entrypoint
+      - ./integration/kafka.conf:/etc/purged-kafka.conf
+    depends_on:
+      - web
+      - producer
+    environment:
+      MY_IP: ${MY_IP}
