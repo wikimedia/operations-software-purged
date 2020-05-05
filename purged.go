@@ -72,6 +72,7 @@ var (
 	hostRegex        = flag.String("host_regex", "", "Regex filter for valid purge hostnames (default unfiltered)")
 	nBackendWorkers  = flag.Int("backend_workers", 4, "Number of backend purger goroutines")
 	nFrontendWorkers = flag.Int("frontend_workers", 1, "Number of frontend purger goroutines")
+	frontendDelay    = flag.Int("frontend_delay", 1000, "Delay in milliseconds between backend and frontend PURGE")
 	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
 	purgeRequests    = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
@@ -194,6 +195,15 @@ func (p *HTTPPurger) Send(host, uri string) (string, error) {
 	return status, err
 }
 
+// delayedPurge sends the given url on the given channel. The reason for
+// returning a function here is that we want to use time.AfterFunc, which takes
+// a function as an argument -- just func(), without parameters.
+func delayedPurge(chout chan url.URL, toPurge url.URL) func() {
+	return func() {
+		chout <- toPurge
+	}
+}
+
 func backendWorker(addr string, chin chan string, chout chan url.URL, re *regexp.Regexp) {
 	var backend PurgeClient
 
@@ -222,7 +232,7 @@ func backendWorker(addr string, chin chan string, chout chan url.URL, re *regexp
 		purgeRequests.With(prometheus.Labels{statusLabel: status, layerLabel: backendValue}).Inc()
 
 		// Send parsed URL to frontend workers
-		chout <- *parsedURL
+		time.AfterFunc(time.Duration(*frontendDelay)*time.Millisecond, delayedPurge(chout, *parsedURL))
 	}
 }
 

@@ -1,6 +1,7 @@
 purged (0.10) UNRELEASED; urgency=medium
 
   * Add copyright notices
+  * New flag -frontend_delay
 
  -- Emanuele Rocca <ema@wikimedia.org>  Thu, 30 Apr 2020 10:21:58 +0200
 

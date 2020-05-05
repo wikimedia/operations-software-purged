@@ -177,3 +177,39 @@ func TestWorkersRegexp(t *testing.T) {
 
 	testWorkersWrapper(t, re, input, expected)
 }
+
+// TestBackendWorker checks that the backendWorker function works as expected
+// in isolation (ie: independently from frontendWorker)
+func TestBackendWorker(t *testing.T) {
+	var beURLs []string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		beURLs = append(beURLs, req.URL.String())
+		rw.Write([]byte(`OK`))
+	}))
+	defer backend.Close()
+	backendURL, _ := url.Parse(backend.URL)
+
+	input := []string{
+		"https://en.wikipedia.org/wiki/Main_Page",
+		"https://it.wikipedia.org/wiki/Pagina_principale",
+	}
+
+	testCh := make(chan string, 10)
+	testFrCh := make(chan url.URL, 10)
+
+	for _, url := range input {
+		testCh <- url
+	}
+
+	// backendWorker never returns
+	go backendWorker(backendURL.Host, testCh, testFrCh, nil)
+
+	// Wait for all the purges to be received by the test server
+	for ; len(beURLs) < len(input); time.Sleep(100 * time.Millisecond) {
+	}
+
+	if beURLs[0] != "/wiki/Main_Page" || beURLs[1] != "/wiki/Pagina_principale" {
+		t.Errorf("Unexpected beURLs: %v", beURLs)
+	}
+}
