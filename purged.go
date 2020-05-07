@@ -80,6 +80,8 @@ var (
 	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
 	kafkaTopics      = flag.String("topics", "", "Optional, comma-separated list of kafka topics to listen to.")
 	kafkaConfigFile  = flag.String("kafkaConfig", "/etc/purgedkafka.conf", "Kafka configuration file")
+	purgeMaxAge      = flag.Int("purgeMaxAge", 864000, "The maximum age of a purge to send to the caches.")
+	kafkaProducer    *KafkaReader
 	purgeRequests    = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
 		Help: "Total number of HTTP PURGE sent by status code",
@@ -284,7 +286,6 @@ func main() {
 	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs, kbufSize: *mcastBufSize}
 
 	chBackend := make(chan string, bufferLen)
-
 	// If we're also listening on kafka, setup the kafka reader too
 	if *kafkaTopics != "" {
 		// Given kafka has an eventloop, we need to reliably signal it that the work is done when exiting
@@ -304,15 +305,15 @@ func main() {
 				os.Exit(0)
 			}
 		}()
-
+		var err error
 		log.Printf("Listening for topics %s", *kafkaTopics)
 		topics := strings.Split(*kafkaTopics, ",")
-		kafkaPr, err := NewKafkaReader(*kafkaConfigFile, topics, done)
+		kafkaProducer, err = NewKafkaReader(*kafkaConfigFile, topics, done, *purgeMaxAge)
 		if err != nil {
 			log.Fatal(err)
 		}
 		go func(c chan string) {
-			kafkaPr.Read(c)
+			kafkaProducer.Read(c)
 			log.Println("Kafka connection stopped")
 		}(chBackend)
 	}
@@ -340,5 +341,8 @@ func main() {
 
 		backlog.With(prometheus.Labels{layerLabel: backendValue}).Set(float64(len(chBackend)))
 		backlog.With(prometheus.Labels{layerLabel: frontendValue}).Set(float64(len(chFrontend)))
+		if *kafkaTopics != "" {
+			purgeLag.Set(kafkaProducer.GetLag())
+		}
 	}
 }

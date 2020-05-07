@@ -21,6 +21,11 @@ if ! docker images > /dev/null 2>&1; then
     alert "       Either run as root or add your user to the docker group."
     exit 3
 fi
+highlight "Generating messages to produce"
+# We need messages to be recent so that they will be consumed.
+DATESUBST=$(date +%Y-%m-%dT%TZ -u)
+sed s/DATESUBST/$DATESUBST/ integration/producer/messages.json.tpl > integration/producer/messages.json
+cat integration/producer/messages.json
 highlight "Bringing up the cluster..."
 docker-compose up -d
 highlight "Waiting for the messages to be produced"
@@ -36,6 +41,8 @@ done
 highlight "Purges you sent should now show up in the web logs below. You can find the messages sent under integration/producer/messages.json"
 sleep 1
 docker-compose logs web
+highlight "Here are the corresponding prometheus metrics"
+curl -sL http://${MY_IP}:2112/metrics | grep purged
 highlight "Stopping the cluster..."
 docker-compose stop
 highlight "Logs from purged:"

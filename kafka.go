@@ -21,6 +21,10 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	// Debian still uses the github.com url
 	// TODO: use vendoring and refer instead to
@@ -28,14 +32,49 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
-const kafkaStatsFile = "/tmp/purged-kafka-stats.json"
-
 // KafkaConsumerAPI represents the minimal api we expect from a consumer client. Useful for testing.
 type KafkaConsumerAPI interface {
 	Close() error
 	SubscribeTopics([]string, kafka.RebalanceCb) error
 	Events() chan kafka.Event
 }
+
+// KafkaReader allows to read purge events from Kafka.
+type KafkaReader struct {
+	// The kafka consumer
+	Reader KafkaConsumerAPI
+
+	// The topic to subscribe
+	Topics []string
+
+	// The maximum age of a purge to send.
+	MaxAge time.Duration
+
+	// Newest timestamp seen. This is a coarse measure of the lag in seconds.
+	maxts time.Time
+
+	// The channel for communicating execution is complete
+	Done chan struct{}
+}
+
+// stats file to be used by prometheus-rdkafka-exporter
+const kafkaStatsFile = "/tmp/purged-kafka-stats.json"
+
+// Kafka Prometheus metrics
+var purgeEvents = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "purged_events_received_total",
+		Help: "Total number of events received from kafka",
+	},
+	[]string{"tag", "status"},
+)
+
+var purgeLag = promauto.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "purged_event_lag",
+		Help: "Time passed since the most recent processed event",
+	},
+)
 
 // Load the kafka config from a file. Taken from atskafka.
 func loadConfig(f string) *kafka.ConfigMap {
@@ -62,42 +101,68 @@ func loadConfig(f string) *kafka.ConfigMap {
 	return &vals
 }
 
-// KafkaReader allows to read purge events from Kafka.
-type KafkaReader struct {
-	// The kafka consumer
-	Reader KafkaConsumerAPI
-
-	// The topic to subscribe
-	Topics []string
-
-	// The channel for communicating execution is complete
-	Done chan struct{}
-}
-
 // NewKafkaReader creates a new kafka consumer based on the configuration provided.
-func NewKafkaReader(configFile string, topics []string, d chan struct{}) (*KafkaReader, error) {
+func NewKafkaReader(configFile string, topics []string, d chan struct{}, maxage int) (*KafkaReader, error) {
 	config := loadConfig(configFile)
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
 		log.Println("Unable to create a kafka consumer from the configuration")
 		return nil, err
 	}
-	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d}
+	m := time.Duration(maxage) * time.Second
+	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m}
+
 	return &kr, nil
 }
 
-func (k KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
+// Sets the highest timestamp we met.
+func (k *KafkaReader) setLag(t time.Time) {
+	if t.After(k.maxts) {
+		k.maxts = t
+	}
+}
+
+// GetLag returns the lag, as an integer number of nanoseconds.
+// The lag is defined as the time elapsed since the timestamp of the most recent event processed.
+func (k *KafkaReader) GetLag() float64 {
+	// At startup we report 0 lag.
+	if k.maxts.IsZero() {
+		return 0
+	}
+	return float64(time.Now().Sub(k.maxts).Nanoseconds())
+}
+
+func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 	consume := true
 	switch e := event.(type) {
 	case *kafka.Message:
 		// Get the url from the message value
 		rc, err := NewResourceChangeFromJSON(&e.Value)
+		tag := ""
+		status := "discarded"
 		if err != nil {
 			// TODO - add a prometheus counter?
 			log.Printf("Could not decode the message: %v\n", err)
 		} else {
-			c <- *rc.GetURL()
+			if len(rc.Tags) > 0 {
+				tag = rc.Tags[0]
+			}
+			sendMsg := true
+			if k.MaxAge != 0 {
+				ts := time.Since(rc.GetTS())
+				// If the timestamp of this purge is the newest we've seen, register it here.
+				k.setLag(rc.GetTS())
+				if ts > k.MaxAge {
+					sendMsg = false
+					status = "expired"
+				}
+			}
+			if sendMsg {
+				status = "ok"
+				c <- *rc.GetURL()
+			}
 		}
+		purgeEvents.With(prometheus.Labels{"tag": tag, "status": status}).Inc()
 	case *kafka.Stats:
 		// For now, save the stats to a file in /tmp. TODO: expose the data via prometheus?
 		go func(ev *kafka.Stats) {
@@ -120,7 +185,7 @@ func (k KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 }
 
 // Read reads messages from the kafka topics we're subscribing to, and returns the URL on the channel
-func (k KafkaReader) Read(c chan string) {
+func (k *KafkaReader) Read(c chan string) {
 	err := k.Reader.SubscribeTopics(k.Topics, nil)
 	if err != nil {
 		log.Fatalf("Could not subscribe the topics %v: %v\n", k.Topics, err)

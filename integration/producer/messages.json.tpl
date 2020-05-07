@@ -1,0 +1,3 @@
+{"$schema": "/resource_change/1.0.0", "meta": {"dt": "DATESUBST","stream": "purge","uri": "https://it.wikipedia.org/wiki/Francesco_Totti"},"tags":["restbase"]}
+{"$schema": "/resource_change/1.0.0", "meta": {"dt": "DATESUBST","stream": "purge","uri": "https://it.wikipedia.org/wiki/Paulo_Roberto_Falcão"}, "tags":["null_edit","restbase"]}
+{"meta":{"uri":"http://es.wikipedia.org/api/rest_v1/page/html/Orquesta_de_Cadaqu%C3%A9s/125847869","stream":"resource_change","request_id":"A","id":"A","dt":"2020-05-07T09:48:24.065Z","domain":"es.wikipedia.org"},"$schema":"/resource_change/1.0.0","tags":["restbase"]}

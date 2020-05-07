@@ -56,8 +56,11 @@ func (m *MockConsumer) Events() chan kafka.Event {
 func setupKafkaReaderTest(events [][]byte, inject bool) (*KafkaReader, *MockConsumer) {
 	chansize := len(events) + 1
 	eventchan := make(chan kafka.Event, chansize)
+	// Set a ludicrously high maxage.
+	// Anything generated after the birthday of wikipedia would work.
+	maxage := time.Duration(169224) * time.Hour
 	mr := NewMockConsumer(eventchan)
-	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}}
+	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: maxage}
 	// Now send the events
 	go func(evts *[][]byte) {
 		for _, eventData := range events {
@@ -73,7 +76,22 @@ func setupKafkaReaderTest(events [][]byte, inject bool) (*KafkaReader, *MockCons
 	return &kr, mr
 }
 
-// Test reading a good message
+// The lag should be zero upon initialization, and depend on maxts otherwise
+func TestGetLag(t *testing.T) {
+	events := [][]byte{}
+	kr, _ := setupKafkaReaderTest(events, true)
+	if kr.GetLag() != 0 {
+		t.Error("Lag should be zero at startup")
+	}
+	// now set a TS
+	kr.setLag(time.Now().AddDate(0, -1, 0))
+	if kr.GetLag() == 0 {
+		t.Error("Lag should be non-zero once we've set a max seen timestamp.")
+	}
+}
+
+// Reading good messages should enqueue urls in the channel, while stale object
+// should not.
 func TestReadGoodMessage(t *testing.T) {
 	events := [][]byte{
 		[]byte(`{
@@ -82,7 +100,8 @@ func TestReadGoodMessage(t *testing.T) {
 				"dt": "2020-04-30T11:37:53Z",
 				"stream": "purge",
 				"uri": "https://it.wikipedia.org/wiki/Francesco_Totti"
-			}
+			},
+			"tags": ["test"]
 		}`),
 	}
 
@@ -100,6 +119,31 @@ func TestReadGoodMessage(t *testing.T) {
 	url := <-c
 	if url != "https://it.wikipedia.org/wiki/Francesco_Totti" {
 		t.Errorf("Unexpected url transmitted: %v", url)
+	}
+}
+
+// A message produced before our maxage value gets discarded
+func TestDiscardMessage(t *testing.T) {
+	events := [][]byte{
+		[]byte(`{
+			"$schema": "/resource_change/1.0.0",
+			"meta": {
+				"dt": "2020-04-30T11:37:53Z",
+				"stream": "purge",
+				"uri": "https://it.wikipedia.org/wiki/Francesco_Totti"
+			},
+			"tags": ["test"]
+		}`),
+	}
+	kr, _ := setupKafkaReaderTest(events, true)
+	c := make(chan string, 1)
+	d := make(chan struct{})
+	kr.Done = d
+	// This surely is later than april 2020 :)
+	kr.MaxAge = time.Duration(1) * time.Second
+	kr.Read(c)
+	if len(c) != 0 {
+		t.Errorf("Erroneously loaded message older than the current Maxage.")
 	}
 }
 
@@ -154,5 +198,36 @@ func TestBadMessage(t *testing.T) {
 	kr.Read(c)
 	if len(c) != 0 {
 		t.Errorf("A message was produced for a message without a URL")
+	}
+}
+
+func BenchmarkManageFullEvent(b *testing.B) {
+	eventchan := make(chan kafka.Event, 1)
+	// Set a ludicrously high maxage.
+	// Anything generated after the birthday of wikipedia would work.
+	maxage := time.Duration(169224) * time.Hour
+	mr := NewMockConsumer(eventchan)
+	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: maxage}
+	evdata := []byte(`{
+		"$schema":"/resource_change/1.0.0",
+		"meta":{
+			"stream":"change-prop.transcludes.resource-change",
+			"uri":"https://en.wikipedia.org/wiki/Some_Page",
+			"request_id":"XrADADADSA",
+			"domain":"en.wikipedia.org",
+			"dt":"2020-05-03T13:10:05.780Z",
+			"id":"11111111111"
+		},
+		"triggered_by":"req:AAAAAAAAAAAAAAAAAAAAAA,mediawiki.revision-create:https://en.wikipedia.org/wiki/Another_Page",
+		"tags":["transcludes","templates"],
+		"root_event":{"signature":"https://en.wikipedia.org/wiki/Another_Page","dt":"2020-02-01T10:10:10Z"}
+	}
+	`)
+	e := kafka.Message{Value: evdata}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c := make(chan string, 1)
+		kr.manageEvent(&e, c)
+		close(c)
 	}
 }
