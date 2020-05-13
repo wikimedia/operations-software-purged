@@ -1,4 +1,4 @@
-purged (0.11) UNRELEASED; urgency=medium
+purged (0.11) buster-wikimedia; urgency=medium
 
   * Add the ability to consume from kafka
 
