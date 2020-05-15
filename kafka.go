@@ -51,7 +51,7 @@ type KafkaReader struct {
 	MaxAge time.Duration
 
 	// Newest timestamp seen. This is a coarse measure of the lag in seconds.
-	maxts time.Time
+	maxts map[string]time.Time
 
 	// The channel for communicating execution is complete
 	Done chan struct{}
@@ -66,14 +66,15 @@ var purgeEvents = promauto.NewCounterVec(
 		Name: "purged_events_received_total",
 		Help: "Total number of events received from kafka",
 	},
-	[]string{"tag", "status"},
+	[]string{"tag", "status", "topic"},
 )
 
-var purgeLag = promauto.NewGauge(
+var purgeLag = promauto.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "purged_event_lag",
 		Help: "Time passed since the most recent processed event",
 	},
+	[]string{"topic"},
 )
 
 // Load the kafka config from a file. Taken from atskafka.
@@ -110,32 +111,40 @@ func NewKafkaReader(configFile string, topics []string, d chan struct{}, maxage 
 		return nil, err
 	}
 	m := time.Duration(maxage) * time.Second
-	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m}
+	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m, maxts: make(map[string]time.Time, len(topics))}
 
 	return &kr, nil
 }
 
 // Sets the highest timestamp we met.
-func (k *KafkaReader) setLag(t time.Time) {
-	if t.After(k.maxts) {
-		k.maxts = t
+func (k *KafkaReader) setLag(t time.Time, topic string) {
+	if _, ok := k.maxts[topic]; !ok {
+		k.maxts[topic] = t
+	} else if t.After(k.maxts[topic]) {
+		k.maxts[topic] = t
 	}
 }
 
 // GetLag returns the lag, as an integer number of nanoseconds.
 // The lag is defined as the time elapsed since the timestamp of the most recent event processed.
-func (k *KafkaReader) GetLag() float64 {
+func (k *KafkaReader) GetLag(topic string) float64 {
 	// At startup we report 0 lag.
-	if k.maxts.IsZero() {
+	maxts, ok := k.maxts[topic]
+	if !ok || maxts.IsZero() {
 		return 0
 	}
-	return float64(time.Now().Sub(k.maxts).Nanoseconds())
+	return float64(time.Now().Sub(maxts).Nanoseconds())
 }
 
 func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 	consume := true
 	switch e := event.(type) {
 	case *kafka.Message:
+		// Find the topic, if any
+		topic := "-"
+		if e.TopicPartition.Topic != nil {
+			topic = *e.TopicPartition.Topic
+		}
 		// Get the url from the message value
 		rc, err := NewResourceChangeFromJSON(&e.Value)
 		tag := ""
@@ -151,7 +160,7 @@ func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 			if k.MaxAge != 0 {
 				ts := time.Since(rc.GetTS())
 				// If the timestamp of this purge is the newest we've seen, register it here.
-				k.setLag(rc.GetTS())
+				k.setLag(rc.GetTS(), topic)
 				if ts > k.MaxAge {
 					sendMsg = false
 					status = "expired"
@@ -162,7 +171,7 @@ func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 				c <- *rc.GetURL()
 			}
 		}
-		purgeEvents.With(prometheus.Labels{"tag": tag, "status": status}).Inc()
+		purgeEvents.With(prometheus.Labels{"tag": tag, "status": status, "topic": topic}).Inc()
 	case *kafka.Stats:
 		// For now, save the stats to a file in /tmp. TODO: expose the data via prometheus?
 		go func(ev *kafka.Stats) {

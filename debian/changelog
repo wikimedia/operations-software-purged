@@ -1,3 +1,9 @@
+purged (0.12) buster-wikimedia; urgency=medium
+
+  * Add the topic to the kafka-related metrics
+
+ -- Giuseppe Lavagetto <glavagetto@wikimedia.org>  Fri, 15 May 2020 11:48:46 +0200
+
 purged (0.11) buster-wikimedia; urgency=medium
 
   * Add the ability to consume from kafka

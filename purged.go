@@ -80,7 +80,7 @@ var (
 	nethttp          = flag.Bool("nethttp", false, "Use net/http (default false)")
 	kafkaTopics      = flag.String("topics", "", "Optional, comma-separated list of kafka topics to listen to.")
 	kafkaConfigFile  = flag.String("kafkaConfig", "/etc/purgedkafka.conf", "Kafka configuration file")
-	purgeMaxAge      = flag.Int("purgeMaxAge", 864000, "The maximum age of a purge to send to the caches.")
+	purgeMaxAge      = flag.Int("purgeMaxAge", 0, "The maximum age of a purge to send to the caches.")
 	kafkaProducer    *KafkaReader
 	purgeRequests    = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "purged_http_requests_total",
@@ -342,7 +342,9 @@ func main() {
 		backlog.With(prometheus.Labels{layerLabel: backendValue}).Set(float64(len(chBackend)))
 		backlog.With(prometheus.Labels{layerLabel: frontendValue}).Set(float64(len(chFrontend)))
 		if *kafkaTopics != "" {
-			purgeLag.Set(kafkaProducer.GetLag())
+			for _, topic := range strings.Split(*kafkaTopics, ",") {
+				purgeLag.With(prometheus.Labels{"topic": topic}).Set(kafkaProducer.GetLag(topic))
+			}
 		}
 	}
 }

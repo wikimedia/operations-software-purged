@@ -56,14 +56,13 @@ func (m *MockConsumer) Events() chan kafka.Event {
 func setupKafkaReaderTest(events [][]byte, inject bool) (*KafkaReader, *MockConsumer) {
 	chansize := len(events) + 1
 	eventchan := make(chan kafka.Event, chansize)
-	// Set a ludicrously high maxage.
-	// Anything generated after the birthday of wikipedia would work.
-	maxage := time.Duration(169224) * time.Hour
 	mr := NewMockConsumer(eventchan)
-	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: maxage}
+	// Set MaxAge to 0 in most tests.
+	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: 0, maxts: make(map[string]time.Time, 2)}
 	// Now send the events
 	go func(evts *[][]byte) {
 		for _, eventData := range events {
+			//topicPartition := kafka.TopicPartition{Topic: "testtopic",}
 			msg := kafka.Message{Value: eventData}
 			eventchan <- &msg
 		}
@@ -80,12 +79,12 @@ func setupKafkaReaderTest(events [][]byte, inject bool) (*KafkaReader, *MockCons
 func TestGetLag(t *testing.T) {
 	events := [][]byte{}
 	kr, _ := setupKafkaReaderTest(events, true)
-	if kr.GetLag() != 0 {
+	if kr.GetLag("topic1") != 0 {
 		t.Error("Lag should be zero at startup")
 	}
-	// now set a TS
-	kr.setLag(time.Now().AddDate(0, -1, 0))
-	if kr.GetLag() == 0 {
+	// now set a TS on a new topic
+	kr.setLag(time.Now().AddDate(0, -1, 0), "topic1")
+	if kr.GetLag("topic1") == 0 {
 		t.Error("Lag should be non-zero once we've set a max seen timestamp.")
 	}
 }
@@ -207,7 +206,7 @@ func BenchmarkManageFullEvent(b *testing.B) {
 	// Anything generated after the birthday of wikipedia would work.
 	maxage := time.Duration(169224) * time.Hour
 	mr := NewMockConsumer(eventchan)
-	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: maxage}
+	kr := KafkaReader{Reader: mr, Topics: []string{"topic1", "topic2"}, MaxAge: maxage, maxts: make(map[string]time.Time)}
 	evdata := []byte(`{
 		"$schema":"/resource_change/1.0.0",
 		"meta":{
