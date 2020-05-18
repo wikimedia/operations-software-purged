@@ -157,10 +157,10 @@ func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 				tag = rc.Tags[0]
 			}
 			sendMsg := true
+			// If the timestamp of this purge is the newest we've seen, register it here.
+			k.setLag(rc.GetTS(), topic)
 			if k.MaxAge != 0 {
 				ts := time.Since(rc.GetTS())
-				// If the timestamp of this purge is the newest we've seen, register it here.
-				k.setLag(rc.GetTS(), topic)
 				if ts > k.MaxAge {
 					sendMsg = false
 					status = "expired"

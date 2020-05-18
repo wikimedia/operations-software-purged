@@ -62,8 +62,8 @@ func setupKafkaReaderTest(events [][]byte, inject bool) (*KafkaReader, *MockCons
 	// Now send the events
 	go func(evts *[][]byte) {
 		for _, eventData := range events {
-			//topicPartition := kafka.TopicPartition{Topic: "testtopic",}
-			msg := kafka.Message{Value: eventData}
+			topicPartition := kafka.TopicPartition{Topic: &kr.Topics[0]}
+			msg := kafka.Message{Value: eventData, TopicPartition: topicPartition}
 			eventchan <- &msg
 		}
 		if inject {
@@ -119,6 +119,10 @@ func TestReadGoodMessage(t *testing.T) {
 	if url != "https://it.wikipedia.org/wiki/Francesco_Totti" {
 		t.Errorf("Unexpected url transmitted: %v", url)
 	}
+	// Check that the lag has been set to non-zero values.
+	if kr.GetLag("topic1") == 0 {
+		t.Errorf("Expected the lag to be non-zero.")
+	}
 }
 
 // A message produced before our maxage value gets discarded
@@ -143,6 +147,10 @@ func TestDiscardMessage(t *testing.T) {
 	kr.Read(c)
 	if len(c) != 0 {
 		t.Errorf("Erroneously loaded message older than the current Maxage.")
+	}
+	// Even if the message was discarded, the lag should be registered.
+	if kr.GetLag("topic1") == 0 {
+		t.Errorf("Expected the lag to be non-zero.")
 	}
 }
 

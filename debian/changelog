@@ -1,3 +1,9 @@
+purged (0.13) UNRELEASED; urgency=medium
+
+  * Fixed a bug where the event lag was not reported when maxAge was zero
+
+ -- Giuseppe Lavagetto <glavagetto@wikimedia.org>  Mon, 18 May 2020 10:17:16 +0200
+
 purged (0.12) buster-wikimedia; urgency=medium
 
   * Add the topic to the kafka-related metrics
