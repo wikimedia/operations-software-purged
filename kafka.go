@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
-	"os"
 	"time"
 
+	"gerrit.wikimedia.org/r/operations/software/prometheus-rdkafka-exporter/promrdkafka"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -55,10 +55,10 @@ type KafkaReader struct {
 
 	// The channel for communicating execution is complete
 	Done chan struct{}
-}
 
-// stats file to be used by prometheus-rdkafka-exporter
-const kafkaStatsFile = "/tmp/purged-kafka-stats.json"
+	// rdkafka prometheus metrics
+	metrics *promrdkafka.Metrics
+}
 
 // Kafka Prometheus metrics
 var purgeEvents = promauto.NewCounterVec(
@@ -111,7 +111,7 @@ func NewKafkaReader(configFile string, topics []string, d chan struct{}, maxage 
 		return nil, err
 	}
 	m := time.Duration(maxage) * time.Second
-	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m, maxts: make(map[string]time.Time, len(topics))}
+	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m, maxts: make(map[string]time.Time, len(topics)), metrics: promrdkafka.NewMetrics()}
 
 	return &kr, nil
 }
@@ -173,18 +173,10 @@ func (k *KafkaReader) manageEvent(event kafka.Event, c chan string) bool {
 		}
 		purgeEvents.With(prometheus.Labels{"tag": tag, "status": status, "topic": topic}).Inc()
 	case *kafka.Stats:
-		// For now, save the stats to a file in /tmp. TODO: expose the data via prometheus?
-		go func(ev *kafka.Stats) {
-			stats, err := os.OpenFile(kafkaStatsFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-			if err != nil {
-				log.Printf("Unable to open kafka stats file: %v\n", err)
-				return
-			}
-			defer stats.Close()
-			if _, err := stats.Write([]byte(ev.String())); err != nil {
-				log.Printf("Unable to save kafka stats file: %v\n", err)
-			}
-		}(e)
+		err := k.metrics.Update(e.String())
+		if err != nil {
+			log.Printf("Unable to update promrdkafka metrics: %v\n", err)
+		}
 	case *kafka.Error:
 		// TODO: when moving to a newer version of librdkafka, use e.IsFatal()
 		log.Printf("Error (code %d) reading from kafka: %v", e.Code(), e.Error())

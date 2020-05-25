@@ -1,4 +1,10 @@
-purged (0.13) UNRELEASED; urgency=medium
+purged (0.14) buster-wikimedia; urgency=medium
+
+  * Expose rdkafka prometheus metrics using promrdkafka
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Wed, 27 May 2020 12:51:05 +0200
+
+purged (0.13) buster-wikimedia; urgency=medium
 
   * Fixed a bug where the event lag was not reported when maxAge was zero
 
