@@ -1,3 +1,11 @@
+purged (0.15) buster-wikimedia; urgency=medium
+
+  * Build against prometheus-rdkafka-exporter 0.2 to fix issue with wrong
+    labels being added to metrics such as
+    rdkafka_consumer_topics_partitions_msgs.
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Tue, 02 Jun 2020 10:24:09 +0200
+
 purged (0.14) buster-wikimedia; urgency=medium
 
   * Expose rdkafka prometheus metrics using promrdkafka
