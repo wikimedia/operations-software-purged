@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"sync"
 	"time"
 
 	"gerrit.wikimedia.org/r/operations/software/prometheus-rdkafka-exporter/promrdkafka"
@@ -51,7 +52,8 @@ type KafkaReader struct {
 	MaxAge time.Duration
 
 	// Newest timestamp seen. This is a coarse measure of the lag in seconds.
-	maxts map[string]time.Time
+	maxts      map[string]time.Time
+	maxtsMutex sync.RWMutex
 
 	// The channel for communicating execution is complete
 	Done chan struct{}
@@ -111,25 +113,37 @@ func NewKafkaReader(configFile string, topics []string, d chan struct{}, maxage 
 		return nil, err
 	}
 	m := time.Duration(maxage) * time.Second
-	kr := KafkaReader{Reader: consumer, Topics: topics, Done: d, MaxAge: m, maxts: make(map[string]time.Time, len(topics)), metrics: promrdkafka.NewMetrics()}
+	kr := KafkaReader{
+		Reader:     consumer,
+		Topics:     topics,
+		Done:       d,
+		MaxAge:     m,
+		maxts:      make(map[string]time.Time, len(topics)),
+		maxtsMutex: sync.RWMutex{},
+		metrics:    promrdkafka.NewMetrics(),
+	}
 
 	return &kr, nil
 }
 
 // Sets the highest timestamp we met.
 func (k *KafkaReader) setLag(t time.Time, topic string) {
+	k.maxtsMutex.Lock()
 	if _, ok := k.maxts[topic]; !ok {
 		k.maxts[topic] = t
 	} else if t.After(k.maxts[topic]) {
 		k.maxts[topic] = t
 	}
+	k.maxtsMutex.Unlock()
 }
 
 // GetLag returns the lag, as an integer number of nanoseconds.
 // The lag is defined as the time elapsed since the timestamp of the most recent event processed.
 func (k *KafkaReader) GetLag(topic string) float64 {
 	// At startup we report 0 lag.
+	k.maxtsMutex.RLock()
 	maxts, ok := k.maxts[topic]
+	k.maxtsMutex.RUnlock()
 	if !ok || maxts.IsZero() {
 		return 0
 	}

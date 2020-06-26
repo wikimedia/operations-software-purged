@@ -1,3 +1,9 @@
+purged (0.16) UNRELEASED; urgency=medium
+
+  * Serialize access to KafkaReader.maxts (Bug: T256479)
+
+ -- Emanuele Rocca <ema@wikimedia.org>  Fri, 26 Jun 2020 15:27:13 +0200
+
 purged (0.15) buster-wikimedia; urgency=medium
 
   * Build against prometheus-rdkafka-exporter 0.2 to fix issue with wrong
