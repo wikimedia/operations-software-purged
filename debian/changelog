@@ -1,4 +1,4 @@
-purged (0.16) UNRELEASED; urgency=medium
+purged (0.16) buster-wikimedia; urgency=medium
 
   * Serialize access to KafkaReader.maxts (Bug: T256479)
 
