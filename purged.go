@@ -70,7 +70,7 @@ const (
 var (
 	frontendAddr     = flag.String("frontend_addr", "127.0.0.1:80", "Cache frontend address")
 	backendAddr      = flag.String("backend_addr", "127.0.0.1:3128", "Cache backend address")
-	mcastAddrs       = flag.String("mcast_addrs", "239.128.0.112,239.128.0.115", "Comma separated list of multicast addresses")
+	mcastAddrs       = flag.String("mcast_addrs", "", "Comma separated list of multicast addresses")
 	mcastBufSize     = flag.Int("mcast_bufsize", 16777216, "Multicast reader kernel buffer size")
 	metricsAddr      = flag.String("prometheus_addr", ":2112", "TCP network address for prometheus metrics")
 	hostRegex        = flag.String("host_regex", "", "Regex filter for valid purge hostnames (default unfiltered)")
@@ -282,10 +282,19 @@ func main() {
 		http.ListenAndServe(*metricsAddr, nil)
 	}()
 
-	// Setup reader
-	pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs, kbufSize: *mcastBufSize}
+	if *mcastAddrs == "" && *kafkaTopics == "" {
+		log.Fatalf("At least one of -mcast_addrs or -topics must be specified")
+	}
 
 	chBackend := make(chan string, bufferLen)
+
+	// Setup multicast reader if the user passed -mcast_addrs
+	if *mcastAddrs != "" {
+		pr := MultiCastReader{maxDatagramSize: 4096, mcastAddrs: *mcastAddrs, kbufSize: *mcastBufSize}
+		// Begin producing URLs to chBackend for consumption by backend workers
+		go pr.Read(chBackend)
+	}
+
 	// If we're also listening on kafka, setup the kafka reader too
 	if *kafkaTopics != "" {
 		// Given kafka has an eventloop, we need to reliably signal it that the work is done when exiting
@@ -317,9 +326,6 @@ func main() {
 			log.Println("Kafka connection stopped")
 		}(chBackend)
 	}
-
-	// Begin producing URLs to chBackend for consumption by backend workers
-	go pr.Read(chBackend)
 
 	// channel for consumption by frontend workers
 	chFrontend := make(chan url.URL, bufferLen)

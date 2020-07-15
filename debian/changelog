@@ -2,6 +2,7 @@ purged (0.17) UNRELEASED; urgency=medium
 
   * Bump build-dependency on golang-go, purged FTBFS with 2:1.11~1 from buster,
     while it builds properly with 2:1.14~1~bpo10+1 from buster backports.
+  * Make -mcast_addrs optional (Bug: T257573)
 
  -- Emanuele Rocca <ema@wikimedia.org>  Mon, 29 Jun 2020 11:39:25 +0200
 
